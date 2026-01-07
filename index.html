@@ -182,11 +182,11 @@
         <div class="card">
             <h3>⚙️ Pengaturan Turnamen</h3>
             <div class="grid">
-                <input id="groups" type="number" value="" placeholder="Jumlah Grup">
-                <input id="teams" type="number" value="" placeholder="Tim per Grup">
-                <input id="startHour" type="time" value="" placeholder="Jam Mulai">
-                <input id="endHour" type="time" value="" placeholder="Jam Selesai">
-                <input id="duration" type="number" value="" placeholder="Durasi">
+                <input id="groups" type="number" value="3" placeholder="Jumlah Grup">
+                <input id="teams" type="number" value="4" placeholder="Tim per Grup">
+                <input id="startHour" type="time" value="08:00" placeholder="Jam Mulai">
+                <input id="endHour" type="time" value="17:00" placeholder="Jam Selesai">
+                <input id="duration" type="number" value="60" placeholder="Durasi (menit)">
             </div>
             <button onclick="generate()">🚀 Buat Jadwal</button>
         </div>
@@ -229,7 +229,6 @@
         }
 
         function generate() {
-
             const statsCard = document.getElementById("statsCard");
             const statsDiv = document.getElementById("stats");
             statsCard.classList.remove("hidden");
@@ -246,7 +245,6 @@
             const groupCard = document.getElementById("groupCard");
             const scheduleCard = document.getElementById("scheduleCard");
 
-            // tampilkan card
             groupCard.classList.remove("hidden");
             scheduleCard.classList.remove("hidden");
             groupCard.classList.add("fade-in");
@@ -261,88 +259,216 @@
             groupsList.innerHTML = "";
             schedule.innerHTML = "";
 
-            let groups = {}, matches = [], last = {};
+            // Struktur data baru yang lebih lengkap
+            let groups = {};
+            let matches = [];
+            let lastMatchTime = {}; // waktu absolut terakhir bermain
+            let matchCountToday = {}; // jumlah match hari ini per tim
+            let matchCountTotal = {}; // total match yang sudah dimainkan per tim
 
+            // Inisialisasi data tim
             for (let g = 0; g < gC; g++) {
                 const name = String.fromCharCode(65 + g);
                 groups[name] = [];
                 for (let t = 1; t <= tC; t++) {
                     const team = `G${name}-T${t}`;
                     groups[name].push(team);
-                    last[team] = -9999;
+                    lastMatchTime[team] = -9999;
+                    matchCountToday[team] = 0;
+                    matchCountTotal[team] = 0;
                 }
             }
 
+            // Buat semua match
             for (let g in groups) {
                 const div = document.createElement("div");
                 div.innerHTML = `<div class="group-title">Grup ${g}</div>`;
                 groups[g].forEach(t => div.innerHTML += `<span class="team">${t}</span>`);
                 groupsList.appendChild(div);
 
-                for (let i = 0; i < groups[g].length; i++)
-                    for (let j = i + 1; j < groups[g].length; j++)
-                        matches.push({ g, a: groups[g][i], b: groups[g][j], w: Math.random() * 10 });
+                for (let i = 0; i < groups[g].length; i++) {
+                    for (let j = i + 1; j < groups[g].length; j++) {
+                        matches.push({
+                            g,
+                            a: groups[g][i],
+                            b: groups[g][j],
+                            weight: 0
+                        });
+                    }
+                }
             }
 
-            let day = 1, time = start, table = createTable(day);
+            let day = 1;
+            let time = start;
+            let table = createTable(day);
             let matchesPerDay = {};
             matchesPerDay[day] = 0;
 
-            while (matches.length) {
+            let lastGroup = null;
+            let groupMatchCountPerDay = {};
+            groupMatchCountPerDay[day] = {};
+
+            // Reset matchCountToday untuk hari pertama
+            for (let team in matchCountToday) {
+                matchCountToday[team] = 0;
+            }
+
+            // Konstanta untuk algoritma
+            const MIN_REST = dur; // Istirahat minimal = durasi match
+            const DAY_PENALTY = 500; // Penalty untuk tim yang sudah main hari ini
+            const GROUP_PENALTY = 30;
+            const SAME_GROUP_PENALTY = 100;
+            const REST_BALANCE_WEIGHT = 50; // Bobot untuk keseimbangan istirahat
+            const MATCH_COUNT_WEIGHT = 100; // Bobot untuk jumlah match yang sudah dimainkan
+
+            // Hitung waktu operasional per hari
+            const operatingMinutes = end - start;
+
+            while (matches.length > 0) {
+                // Jika waktu habis, lanjut ke hari berikutnya
                 if (time + dur > end) {
                     day++;
                     time = start;
                     table = createTable(day);
                     matchesPerDay[day] = 0;
+                    groupMatchCountPerDay[day] = {};
+                    lastGroup = null;
+
+                    // Reset counter match hari ini
+                    for (let team in matchCountToday) {
+                        matchCountToday[team] = 0;
+                    }
                 }
 
-                matches.sort((x, y) => {
-                    if (y.w !== x.w) return y.w - x.w;
-                    return Math.min(time - last[y.a], time - last[y.b]) -
-                        Math.min(time - last[x.a], time - last[x.b]);
+                // Hitung bobot untuk semua match yang tersisa
+                matches.forEach(m => {
+                    // Hitung istirahat RELATIF (dalam hari ini)
+                    let restA = time - lastMatchTime[m.a];
+                    let restB = time - lastMatchTime[m.b];
+
+                    // Jika tim belum main hari ini, set istirahat = operatingMinutes
+                    // Ini memberi prioritas pada tim yang belum main hari ini
+                    if (matchCountToday[m.a] === 0 && day > 1) {
+                        restA = operatingMinutes;
+                    }
+                    if (matchCountToday[m.b] === 0 && day > 1) {
+                        restB = operatingMinutes;
+                    }
+
+                    // HARD CONSTRAINT: tidak boleh main berturut-turut
+                    if (restA < MIN_REST || restB < MIN_REST) {
+                        m.weight = -Infinity;
+                        return;
+                    }
+
+                    // Faktor 1: Keseimbangan istirahat
+                    const minRest = Math.min(restA, restB);
+                    const restDiff = Math.abs(restA - restB);
+                    let balanceScore = (minRest * 2) - restDiff;
+
+                    // Faktor 2: Prioritas untuk tim yang belum main hari ini
+                    let dayPriority = 0;
+                    if (matchCountToday[m.a] === 0) dayPriority += 50;
+                    if (matchCountToday[m.b] === 0) dayPriority += 50;
+
+                    // Faktor 3: Prioritas untuk tim yang total match-nya lebih sedikit
+                    const totalMatchDiff = Math.abs(matchCountTotal[m.a] - matchCountTotal[m.b]);
+                    const avgMatchCount = (matchCountTotal[m.a] + matchCountTotal[m.b]) / 2;
+                    let matchCountScore = (5 - avgMatchCount) * MATCH_COUNT_WEIGHT - totalMatchDiff * 20;
+
+                    // Faktor 4: Penalty untuk grup yang sama berturut-turut
+                    let groupPenalty = (m.g === lastGroup) ? SAME_GROUP_PENALTY : 0;
+
+                    // Faktor 5: Penalty untuk grup yang sudah banyak main hari ini
+                    const playedToday = groupMatchCountPerDay[day][m.g] || 0;
+                    let groupDayPenalty = playedToday * GROUP_PENALTY;
+
+                    // Gabungkan semua faktor
+                    m.weight =
+                        balanceScore * REST_BALANCE_WEIGHT +
+                        dayPriority * 10 +
+                        matchCountScore -
+                        groupPenalty -
+                        groupDayPenalty;
+
+                    // Bonus untuk match yang kedua timnya belum main hari ini
+                    if (matchCountToday[m.a] === 0 && matchCountToday[m.b] === 0) {
+                        m.weight += 200;
+                    }
                 });
 
-                const m = matches.shift();
-                last[m.a] = last[m.b] = time;
+                // Urutkan berdasarkan bobot tertinggi
+                matches.sort((a, b) => b.weight - a.weight);
 
+                // Ambil match dengan bobot tertinggi
+                const m = matches.shift();
+
+                // Update data
+                lastMatchTime[m.a] = time;
+                lastMatchTime[m.b] = time;
+                lastGroup = m.g;
+
+                matchCountToday[m.a]++;
+                matchCountToday[m.b]++;
+                matchCountTotal[m.a]++;
+                matchCountTotal[m.b]++;
+
+                groupMatchCountPerDay[day][m.g] =
+                    (groupMatchCountPerDay[day][m.g] || 0) + 1;
+
+                // Tambahkan ke jadwal
                 const r = document.createElement("tr");
                 r.innerHTML = `
-                    <td>${fmt(time)}-${fmt(time + dur)}</td>
+                    <td>${minutesToTime(time)}-${minutesToTime(time + dur)}</td>
                     <td>Grup ${m.g}</td>
                     <td>${m.a} vs ${m.b}</td>
-                    <td>${m.w.toFixed(1)}</td>`;
+                `;
                 table.querySelector("tbody").appendChild(r);
 
                 matchesPerDay[day]++;
                 time += dur;
             }
 
+            // Hitung statistik
             const maxMatchPerDay = Math.max(...Object.values(matchesPerDay));
-
+            const minMatchPerDay = Math.min(...Object.values(matchesPerDay));
             const matchPerGroup = (tC * (tC - 1)) / 2;
             const totalMatch = matchPerGroup * gC;
+            const totalDays = Object.keys(matchesPerDay).length;
 
-            statsDiv.innerHTML = "";
+            // Hitung distribusi match per tim
+            let minMatches = Infinity;
+            let maxMatches = 0;
+            for (let team in matchCountTotal) {
+                minMatches = Math.min(minMatches, matchCountTotal[team]);
+                maxMatches = Math.max(maxMatches, matchCountTotal[team]);
+            }
+            const matchSpread = maxMatches - minMatches;
+
+            // Hitung distribusi istirahat
+            let restTimes = [];
+            for (let team in lastMatchTime) {
+                if (lastMatchTime[team] > 0) {
+                    restTimes.push(lastMatchTime[team] - start);
+                }
+            }
+            const avgRest = restTimes.length > 0 ?
+                Math.round(restTimes.reduce((a, b) => a + b, 0) / restTimes.length) : 0;
 
             statsDiv.innerHTML = `
                 <div class="stat-item">
-                    <div class="stat-title">Jam Mulai Pertandingan</div>
-                    <div class="stat-value">${startInput.value}</div>
+                    <div class="stat-title">Total Hari Pertandingan</div>
+                    <div class="stat-value">${totalDays}</div>
                 </div>
 
                 <div class="stat-item">
-                    <div class="stat-title">Jam Selesai Pertandingan</div>
-                    <div class="stat-value">${endInput.value}</div>
-                </div>
-
-                <div class="stat-item">
-                    <div class="stat-title">Durasi Tiap Match</div>
-                    <div class="stat-value">${dur} menit</div>
-                </div>
-
-                <div class="stat-item">
-                    <div class="stat-title">Total Match per Hari (Terbanyak)</div>
+                    <div class="stat-title">Match per Hari (Maks)</div>
                     <div class="stat-value">${maxMatchPerDay}</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Match per Hari (Min)</div>
+                    <div class="stat-value">${minMatchPerDay}</div>
                 </div>
 
                 <div class="stat-item">
@@ -354,6 +480,16 @@
                     <div class="stat-title">Total Match Keseluruhan</div>
                     <div class="stat-value">${totalMatch}</div>
                 </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Spread Match per Tim</div>
+                    <div class="stat-value">${matchSpread}</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Rata-rata Istirahat</div>
+                    <div class="stat-value">${minutesToTime(avgRest)}</div>
+                </div>
             `;
 
         }
@@ -361,12 +497,18 @@
         function createTable(day) {
             schedule.innerHTML += `<div class="day-title">Hari ke-${day}</div>`;
             const t = document.createElement("table");
-            t.innerHTML = `<thead><tr><th>Waktu</th><th>Grup</th><th>Pertandingan</th><th>Bobot</th></tr></thead><tbody></tbody>`;
+            t.innerHTML = `
+                <thead>
+                <tr>
+                    <th>Waktu</th>
+                    <th>Grup</th>
+                    <th>Pertandingan</th>
+                </tr>
+                </thead>
+                <tbody></tbody>`;
             schedule.appendChild(t);
             return t;
         }
-
-        const fmt = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
     </script>
 
 </body>
