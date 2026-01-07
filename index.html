@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Basket Tournament Scheduler</title>
+
+    <style>
+        :root {
+            --blue1: #2563eb;
+            --blue2: #1e40af;
+            --glass: rgba(255, 255, 255, .75);
+            --border: rgba(255, 255, 255, .35);
+            --bg1: #0f172a;
+            --bg2: #020617;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", Segoe UI, Arial, sans-serif;
+            background: linear-gradient(135deg, var(--bg1), var(--bg2));
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        /* HEADER */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        /* CARD */
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(14px);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 22px;
+            margin-bottom: 25px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, .25);
+        }
+
+        /* HIDDEN STATE */
+        .hidden {
+            display: none;
+        }
+
+        .fade-in {
+            animation: fade .6s ease forwards;
+        }
+
+        @keyframes fade {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* INPUT */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 18px;
+        }
+
+        .field label {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        input {
+            width: 100%;
+            padding: 11px;
+            border-radius: 12px;
+            border: none;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 14px;
+            width: 100%;
+            border: none;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--blue1), var(--blue2));
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        /* GROUPS */
+        .group-title {
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: var(--blue2);
+        }
+
+        .team {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: #e0e7ff;
+            color: #1e3a8a;
+            font-size: 13px;
+            margin: 4px;
+        }
+
+        /* TABLE */
+        .day-title {
+            font-weight: 800;
+            margin: 30px 0 10px;
+            color: var(--blue2);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        th {
+            background: linear-gradient(135deg, var(--blue1), var(--blue2));
+            color: white;
+            padding: 12px;
+        }
+
+        td {
+            padding: 12px;
+            background: white;
+            border-bottom: 1px solid #eee;
+            text-align: center;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 14px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, .08);
+        }
+
+        .stat-title {
+            font-size: 13px;
+            opacity: .7;
+        }
+
+        .stat-value {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--blue2);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="header">
+            <h1>🏀 Basket Tournament Scheduler</h1>
+            <span>Greedy Fair-Rest Algorithm</span>
+        </div>
+
+        <!-- INPUT -->
+        <div class="card">
+            <h3>⚙️ Pengaturan Turnamen</h3>
+            <div class="grid">
+                <input id="groups" type="number" value="" placeholder="Jumlah Grup">
+                <input id="teams" type="number" value="" placeholder="Tim per Grup">
+                <input id="startHour" type="time" value="" placeholder="Jam Mulai">
+                <input id="endHour" type="time" value="" placeholder="Jam Selesai">
+                <input id="duration" type="number" value="" placeholder="Durasi">
+            </div>
+            <button onclick="generate()">🚀 Buat Jadwal</button>
+        </div>
+
+        <!-- GROUP & STATS WRAPPER -->
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px">
+
+            <!-- GROUP LIST -->
+            <div id="groupCard" class="card hidden">
+                <h3>👥 Daftar Grup & Tim</h3>
+                <div id="groupsList"></div>
+            </div>
+
+            <!-- STATS -->
+            <div id="statsCard" class="card hidden">
+                <h3>📊 Statistik Turnamen</h3>
+                <div id="stats"></div>
+            </div>
+
+        </div>
+
+        <!-- SCHEDULE -->
+        <div id="scheduleCard" class="card hidden">
+            <h3>📅 Jadwal Pertandingan</h3>
+            <div id="schedule"></div>
+        </div>
+
+    </div>
+
+    <script>
+        function timeToMinutes(timeStr) {
+            const [h, m] = timeStr.split(":").map(Number);
+            return h * 60 + m;
+        }
+
+        function minutesToTime(min) {
+            const h = Math.floor(min / 60);
+            const m = min % 60;
+            return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+        }
+
+        function generate() {
+
+            const statsCard = document.getElementById("statsCard");
+            const statsDiv = document.getElementById("stats");
+            statsCard.classList.remove("hidden");
+            statsCard.classList.add("fade-in");
+
+            const groupsInput = document.getElementById("groups");
+            const teamsInput = document.getElementById("teams");
+            const startInput = document.getElementById("startHour");
+            const endInput = document.getElementById("endHour");
+            const durationInput = document.getElementById("duration");
+
+            const groupsList = document.getElementById("groupsList");
+            const schedule = document.getElementById("schedule");
+            const groupCard = document.getElementById("groupCard");
+            const scheduleCard = document.getElementById("scheduleCard");
+
+            // tampilkan card
+            groupCard.classList.remove("hidden");
+            scheduleCard.classList.remove("hidden");
+            groupCard.classList.add("fade-in");
+            scheduleCard.classList.add("fade-in");
+
+            const gC = +groupsInput.value;
+            const tC = +teamsInput.value;
+            const start = timeToMinutes(startInput.value);
+            const end = timeToMinutes(endInput.value);
+            const dur = +durationInput.value;
+
+            groupsList.innerHTML = "";
+            schedule.innerHTML = "";
+
+            let groups = {}, matches = [], last = {};
+
+            for (let g = 0; g < gC; g++) {
+                const name = String.fromCharCode(65 + g);
+                groups[name] = [];
+                for (let t = 1; t <= tC; t++) {
+                    const team = `G${name}-T${t}`;
+                    groups[name].push(team);
+                    last[team] = -9999;
+                }
+            }
+
+            for (let g in groups) {
+                const div = document.createElement("div");
+                div.innerHTML = `<div class="group-title">Grup ${g}</div>`;
+                groups[g].forEach(t => div.innerHTML += `<span class="team">${t}</span>`);
+                groupsList.appendChild(div);
+
+                for (let i = 0; i < groups[g].length; i++)
+                    for (let j = i + 1; j < groups[g].length; j++)
+                        matches.push({ g, a: groups[g][i], b: groups[g][j], w: Math.random() * 10 });
+            }
+
+            let day = 1, time = start, table = createTable(day);
+            let matchesPerDay = {};
+            matchesPerDay[day] = 0;
+
+            while (matches.length) {
+                if (time + dur > end) {
+                    day++;
+                    time = start;
+                    table = createTable(day);
+                    matchesPerDay[day] = 0;
+                }
+
+                matches.sort((x, y) => {
+                    if (y.w !== x.w) return y.w - x.w;
+                    return Math.min(time - last[y.a], time - last[y.b]) -
+                        Math.min(time - last[x.a], time - last[x.b]);
+                });
+
+                const m = matches.shift();
+                last[m.a] = last[m.b] = time;
+
+                const r = document.createElement("tr");
+                r.innerHTML = `
+                    <td>${fmt(time)}-${fmt(time + dur)}</td>
+                    <td>Grup ${m.g}</td>
+                    <td>${m.a} vs ${m.b}</td>
+                    <td>${m.w.toFixed(1)}</td>`;
+                table.querySelector("tbody").appendChild(r);
+
+                matchesPerDay[day]++;
+                time += dur;
+            }
+
+            const maxMatchPerDay = Math.max(...Object.values(matchesPerDay));
+
+            const matchPerGroup = (tC * (tC - 1)) / 2;
+            const totalMatch = matchPerGroup * gC;
+
+            statsDiv.innerHTML = "";
+
+            statsDiv.innerHTML = `
+                <div class="stat-item">
+                    <div class="stat-title">Jam Mulai Pertandingan</div>
+                    <div class="stat-value">${startInput.value}</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Jam Selesai Pertandingan</div>
+                    <div class="stat-value">${endInput.value}</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Durasi Tiap Match</div>
+                    <div class="stat-value">${dur} menit</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Total Match per Hari (Terbanyak)</div>
+                    <div class="stat-value">${maxMatchPerDay}</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Total Match per Grup</div>
+                    <div class="stat-value">${matchPerGroup}</div>
+                </div>
+
+                <div class="stat-item">
+                    <div class="stat-title">Total Match Keseluruhan</div>
+                    <div class="stat-value">${totalMatch}</div>
+                </div>
+            `;
+
+        }
+
+        function createTable(day) {
+            schedule.innerHTML += `<div class="day-title">Hari ke-${day}</div>`;
+            const t = document.createElement("table");
+            t.innerHTML = `<thead><tr><th>Waktu</th><th>Grup</th><th>Pertandingan</th><th>Bobot</th></tr></thead><tbody></tbody>`;
+            schedule.appendChild(t);
+            return t;
+        }
+
+        const fmt = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    </script>
+
+</body>
+
+</html>
