@@ -443,7 +443,6 @@
                 minMatches = Math.min(minMatches, matchCountTotal[team]);
                 maxMatches = Math.max(maxMatches, matchCountTotal[team]);
             }
-            const matchSpread = maxMatches - minMatches;
 
             // Hitung distribusi istirahat
             let restTimes = [];
@@ -482,8 +481,8 @@
                 </div>
 
                 <div class="stat-item">
-                    <div class="stat-title">Spread Match per Tim</div>
-                    <div class="stat-value">${matchSpread}</div>
+                    <div class="stat-title">Waktu Pertandingan</div>
+                    <div class="stat-value">${dur} Menit</div>
                 </div>
 
                 <div class="stat-item">
